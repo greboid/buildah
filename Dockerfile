@@ -39,6 +39,7 @@ cd /buildah
 
 RUN set -eux; \
 cd /buildah; \
+sed -i "s#PREFIX := /usr/local#PREFIX := /usr#" Makefile; \
 mkdir /debpackage; \
 make runc all SECURITYTAGS="apparmor seccomp"; \
 make install
