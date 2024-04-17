@@ -1,6 +1,9 @@
 FROM ubuntu:22.04
 
 ENV PATH=$PATH:/usr/local/go/bin
+ENV DESTDIR=/debpackage
+ENV VER=1.35.3
+ENV GOVER=1.22.2
 
 RUN set -eux; \
 apt-get -y -qq update; \
@@ -25,16 +28,14 @@ echo "[advice]" > /etc/gitconfig; \
 echo "    detachedHead = false" >> /etc/gitconfig;
 
 RUN set -eux; \
-curl -Ss -L -o /go.tgz https://go.dev/dl/go1.22.2.linux-amd64.tar.gz; \
+curl -Ss -L -o /go.tgz https://go.dev/dl/go$GOVER.linux-amd64.tar.gz; \
 rm -rf /usr/local/go; \
 tar -C /usr/local -xzf go.tgz; \
 rm -r /go.tgz
 
 RUN set -eux; \
-git clone --depth=1 -b v1.35.3 https://github.com/containers/buildah; \
+git clone --depth=1 -b v$VER https://github.com/containers/buildah; \
 cd /buildah
-
-ENV DESTDIR=/debpackage
 
 RUN set -eux; \
 cd /buildah; \
@@ -43,15 +44,27 @@ make runc all SECURITYTAGS="apparmor seccomp"; \
 make install
 
 RUN set -eux; \
-mkdir $DESTDIR/DEBIAN /output; \
+DEBVER="$VER-1+greboid"; \
+OUTFILE="/out/buildah-$DEBVER.deb"; \
+mkdir $DESTDIR/DEBIAN /out; \
 echo "Package: buildah" > $DESTDIR/DEBIAN/control; \
-echo "Version: 1.35.3-1+greboid" >> $DESTDIR/DEBIAN/control; \
+echo "Version: $DEBVER" >> $DESTDIR/DEBIAN/control; \
 echo "Section: base" >> $DESTDIR/DEBIAN/control; \
 echo "Priority: optional" >> $DESTDIR/DEBIAN/control; \
 echo "Architecture: amd64" >> $DESTDIR/DEBIAN/control; \
 echo "Maintainer: Greg Holmes<git@greg.holmes.name>" >> $DESTDIR/DEBIAN/control; \
 echo "Description: Buildah - https://github.com/containers/buildah - Quick install for github runners" >> $DESTDIR/DEBIAN/control; \
-dpkg-deb --build $DESTDIR /output/buildah-1.35.3-1+greboid.deb
+dpkg-deb --build $DESTDIR "$OUTFILE"; \
+echo "#!/bin/bash" >> /run.sh; \
+echo "/usr/bin/gh release create v$VER --notes v$VER -t v$VER $OUTFILE --latest --repo greboid/buildah" >> /run.sh; \
+chmod +x /run.sh
 
 RUN set -eux; \
-dpkg -i /output/buildah-1.35.3-1+greboid.deb
+mkdir -p -m 755 /etc/apt/keyrings; \
+curl -Ss -L -o /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg; \
+chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg; \
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list; \
+apt-get -y -qq update; \
+apt-get -y -qq install gh
+
+CMD ["/run.sh"]
